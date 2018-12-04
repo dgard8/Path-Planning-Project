@@ -2,14 +2,19 @@
 #define Car_hpp
 
 #include <stdio.h>
-#include "Map.h"
 #include "json.hpp"
 
+using namespace std;
+
+class Map;
 class Car{
 public:
-  Car(nlohmann::json j);
+  Car(string mapFile);
+  Car();
   virtual ~Car();
+  void readInputData(nlohmann::json j);
   
+  Map* map;
   double x;
   double y;
   double s;
@@ -20,6 +25,7 @@ public:
   int num_path_points;
   double time_per_step;
   double max_acceleration;
+  double max_vel_change;
   
   vector<double> previous_path_x;
   vector<double> previous_path_y;
@@ -29,15 +35,19 @@ public:
   vector<double> next_x_vals;
   vector<double> next_y_vals;
   
-  void keepInLane(Map &map);
+  void drive();
+  
   bool isInLane(float d, int lane, double lane_width);
-  double getVelocity(double ref_velocity);
+  double getDistance(double x1, double y1, double x2, double y2);
+  friend bool operator< (const Car &c1, const Car &c2);
   
 private:
   void printVector(vector<double> vec){
     for (int i = 0; i<vec.size(); i++)
       cout << vec[i] << " ";
   }
+  
+  void generateTrajectory(int lane, double target_speed);
   
   // For converting back and forth between radians and degrees.
   double pi() { return M_PI; }

@@ -5,6 +5,7 @@
 #include <iostream>
 #include <sstream>
 
+Map::Map() {}
 Map::~Map() {}
 
 Map::Map(string mapFile){
@@ -38,6 +39,42 @@ Map::Map(string mapFile){
       waypoints_dx.push_back(d_x);
       waypoints_dy.push_back(d_y);
   }
+}
+
+void Map::processSensorFusion(vector<vector<double>> sensor_fusion){
+  otherCars = map<int, set<Car>>();
+  for (vector<double> other_car : sensor_fusion){
+    Car otherCar;
+    otherCar.s = other_car[5];
+    otherCar.d = other_car[6];
+    otherCar.current_lane = otherCar.d / lane_width;
+    
+    double other_vx = other_car[3];
+    double other_vy = other_car[4];
+    otherCar.speed = sqrt(other_vx*other_vx + other_vy*other_vy);
+    
+    otherCars[otherCar.current_lane].insert(otherCar);
+  }
+}
+
+bool Map::laneIsOpen(int lane, double s, double speed){
+  if (lane < 0)
+    return false;
+  if (lane > 2)
+    return false;
+  
+  set<Car> otherCarsInLane = otherCars[lane];
+  for (Car car : otherCarsInLane){
+    if (car.current_lane == lane){
+      if (car.s >= s-5 && car.s < s+30){
+        return false;
+      }
+      if (car.s > s-30 && car.s < s-5 && car.speed > speed){
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 // Transform from Frenet s,d coordinates to Cartesian x,y

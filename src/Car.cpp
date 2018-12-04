@@ -1,9 +1,22 @@
 #include "Car.hpp"
 #include "spline.h"
+#include "Map.h"
 
-Car::~Car() {}
+Car::Car(string mapFile) {
+  map = new Map(mapFile);
+  current_lane = 1;
+  num_path_points = 25;
+  time_per_step = .02;
+  max_acceleration = 8.5;
+  max_vel_change = max_acceleration * time_per_step;
+}
 
-Car::Car(nlohmann::json j){
+Car::Car() {};
+Car::~Car() {
+  //clean up the map
+}
+
+void Car::readInputData(nlohmann::json j){
   x = j["x"];
   y = j["y"];
   s = j["s"];
@@ -16,69 +29,72 @@ Car::Car(nlohmann::json j){
   
   vector<double> temp_previous_path_x = j["previous_path_x"];
   vector<double> temp_previous_path_y = j["previous_path_y"];
-  previous_path_x = temp_previous_path_x;
-  previous_path_y = temp_previous_path_y;
+  if (temp_previous_path_x.size() > 2){
+    // sometimes the simulator only returns a single point. When that happens just use the old previous path to avoid stopping.
+    previous_path_x = temp_previous_path_x;
+    previous_path_y = temp_previous_path_y;
+  }
   
-  current_lane = 1;
-  num_path_points = 25;
-  time_per_step = .02;
-  max_acceleration = 9.5;
+  map->processSensorFusion(j["sensor_fusion"]);
 }
 
-bool Car::isInLane(float d, int lane, double lane_width){
-  double left_edge = lane_width*lane;
-  double right_edge = left_edge + lane_width;
-  return (d > left_edge && d < right_edge);
+double Car::getDistance(double x1, double y1, double x2, double y2){
+  return sqrt((x1-x2)*(x1-x2)+(y1-y2)*(y1-y2));
 }
 
-double Car::getVelocity(double target_velocity){
-  double new_velocity;
-  double max_vel_change = max_acceleration * time_per_step;
-  if (speed + max_vel_change > target_velocity){
-    if (speed - max_vel_change > target_velocity){
-      new_velocity = speed - max_vel_change;
-    }
-    else{
-      new_velocity = target_velocity;
+bool operator< (const Car &c1, const Car &c2){
+  return c1.d < c2.d;
+}
+
+void Car::drive(){
+  
+  // cases to fix: if the car in front continually brakes I get too close: slow down if the car in front is closer than 20
+  // if the cars behind me in the other lane are going slower than me then go ahead and move anyway
+  // don't cut off cars moving too fast
+  // why do I randomly exceed limits?
+  
+  
+  set<Car> otherCarsInLane = map->otherCars[current_lane];
+  for (Car other_car : otherCarsInLane){
+      if (other_car.current_lane == current_lane){
+        if (other_car.s > s && other_car.s < s + 30){
+          if (map->laneIsOpen(current_lane-1, s, speed)){
+            generateTrajectory(current_lane-1, other_car.speed);
+            current_lane = current_lane-1;
+          }
+          else if (map->laneIsOpen(current_lane+1, s, speed)){
+            generateTrajectory(current_lane+1, other_car.speed);
+            current_lane = current_lane+1;
+          }
+          else {
+            generateTrajectory(current_lane, other_car.speed);
+          }
+          return;
+        }
     }
   }
-  else{
-    new_velocity = speed + max_vel_change;
-  }
-  cout << speed << " "  << new_velocity << endl;
-  return new_velocity;
+  
+  // no one in front of us, drive as fast as legally allowed
+  generateTrajectory(current_lane, map->speed_limit - (0.5/2.237));
+  
 }
 
-void Car::keepInLane(Map &map){
-  
+void Car::generateTrajectory(int lane, double target_speed){
   vector<double> spline_x;
   vector<double> spline_y;
   double ref_x;
   double ref_y;
   double ref_yaw;
-  
-  double velocity = getVelocity(map.speed_limit - 0.5);
-  
-  for (vector<double> other_car : map.sensor_fusion){
-    float other_car_d = other_car[6];
-    if (isInLane(other_car_d, current_lane, map.lane_width)){
-      double other_vx = other_car[3];
-      double other_vy = other_car[4];
-      double other_speed = sqrt(other_vx*other_vx + other_vy*other_vy);
-      double other_s = other_car[5];
-      
-      if (other_s > s && other_s < s + 30){
-        velocity = getVelocity(other_speed);
-      }
-    }
-  }
+  double ref_speed;
   
   int previous_path_size = previous_path_x.size();
   
   if (previous_path_size < 2){
+    // we don't have a previously calculated path, so use the car's current position as the reference
     ref_x = x;
     ref_y = y;
     ref_yaw = deg2rad(yaw);
+    ref_speed = speed;
     
     // use a point that is line with current car orientation
     spline_x.push_back(x - cos(ref_yaw));
@@ -89,12 +105,15 @@ void Car::keepInLane(Map &map){
     spline_y.push_back(y);
   }
   else{
+    // use the end of the previous path as the reference, we will just add points from there
     ref_x = previous_path_x[previous_path_size-1];
     ref_y = previous_path_y[previous_path_size-1];
     
     double ref_x_prev = previous_path_x[previous_path_size-2];
     double ref_y_prev = previous_path_y[previous_path_size-2];
+    
     ref_yaw = atan2(ref_y-ref_y_prev, ref_x-ref_x_prev);
+    ref_speed = getDistance(ref_x, ref_y, ref_x_prev, ref_y_prev)/time_per_step;
     
     spline_x.push_back(ref_x_prev);
     spline_y.push_back(ref_y_prev);
@@ -103,11 +122,11 @@ void Car::keepInLane(Map &map){
     spline_y.push_back(ref_y);
   }
   
-  // get points for the spline
+  // get new points after the reference points for the spline
   double distance_between_points = 30;
+  vector<double> ref_s_d = map->getFrenet(ref_x, ref_y, ref_yaw);
   for (int i=1; i<4; i++){
-    vector<double> next_spline_point =
-        map.getXY(s+(distance_between_points*i), map.lane_width/2.0+(map.lane_width*current_lane));
+    vector<double> next_spline_point = map->getXY(ref_s_d[0]+(distance_between_points*i), map->lane_width/2.0+(map->lane_width*lane));
     spline_x.push_back(next_spline_point[0]);
     spline_y.push_back(next_spline_point[1]);
   }
@@ -124,26 +143,39 @@ void Car::keepInLane(Map &map){
   tk::spline spline;
   spline.set_points(spline_x, spline_y);
   
+  // follow the previous path, we will add to the end of it
   next_x_vals = previous_path_x;
   next_y_vals = previous_path_y;
   
-  double target_x = 30.0;
-  double target_y = spline(target_x);
-  double target_distance = sqrt((target_x*target_x)+(target_y*target_y));
-  double N = (target_distance/(time_per_step*velocity));
-  //cout << N << endl;
+  double current_step_speed = ref_speed;
+  double current_step_x = 0;
+  double current_step_y = 0;
   
   for (int i=1; i<num_path_points-previous_path_size; i++){
-    double x_point = i*target_x/N;
+    // change speed on each time step otherwise we only accelerate every time we re-calculate a path which is 3 or 4 time steps.
+    if (current_step_speed + max_vel_change < target_speed){
+      current_step_speed += max_vel_change;
+    }
+    else if (current_step_speed - max_vel_change > target_speed){
+      current_step_speed -= max_vel_change;
+    }
+    
+    // figure out how far we can go given the current speed we are aiming for
+    double target_x = current_step_x + 30.0;
+    double target_y = spline(target_x);
+    double target_distance = getDistance(target_x, target_y, current_step_x, current_step_y);
+    double N = (target_distance/(time_per_step*current_step_speed));
+    
+    // get the next point
+    double x_point = current_step_x + (target_x-current_step_x)/N;
     double y_point = spline(x_point);
     
-    double x_ref = x_point;
-    double y_ref = y_point;
+    current_step_x = x_point;
+    current_step_y = y_point;
     
-    x_point = ref_x + (x_ref * cos(ref_yaw) - y_ref * sin(ref_yaw));
-    y_point = ref_y + (x_ref * sin(ref_yaw) + y_ref * cos(ref_yaw));
-    
-    //cout << " " << i << " " << x_point << " " << y_point << endl;
+    // convert the point back to global coordinates
+    x_point = ref_x + (current_step_x * cos(ref_yaw) - current_step_y * sin(ref_yaw));
+    y_point = ref_y + (current_step_x * sin(ref_yaw) + current_step_y * cos(ref_yaw));
     
     next_x_vals.push_back(x_point);
     next_y_vals.push_back(y_point);

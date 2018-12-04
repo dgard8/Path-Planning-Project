@@ -6,8 +6,8 @@
 #include <vector>
 #include "Eigen-3.3/Eigen/Core"
 #include "Eigen-3.3/Eigen/QR"
-#include "Map.h"
 #include "Car.hpp"
+#include "Map.h"
 #include "json.hpp"
 
 using namespace std;
@@ -33,9 +33,9 @@ string hasData(string s) {
 int main() {
   uWS::Hub h;
   
-  Map map("../data/highway_map.csv");
+  Car car("../data/highway_map.csv");
 
-  h.onMessage([&map](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
+  h.onMessage([&car](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
@@ -52,19 +52,13 @@ int main() {
         string event = j[0].get<string>();
         
         if (event == "telemetry") {
-          // j[1] is the data JSON object
           bool verbose = true;
           if (verbose) {cout << j[1].dump() << endl;}
           
           // Main car's localization Data
-          Car car(j[1]);
+          car.readInputData(j[1]);
 
-          // Sensor Fusion Data, a list of all other cars on the same side of the road.
-          vector<vector<double>> temp_sensor_fusion = j[1]["sensor_fusion"];
-          map.sensor_fusion = temp_sensor_fusion;
-
-          // TODO: define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
-          car.keepInLane(map);
+          car.drive();
         
           json msgJson;
           msgJson["next_x"] = car.next_x_vals;
