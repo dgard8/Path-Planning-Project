@@ -47,36 +47,44 @@ bool operator< (const Car &c1, const Car &c2){
 }
 
 void Car::drive(){
-  
-  // cases to fix: if the car in front continually brakes I get too close: slow down if the car in front is closer than 20
-  // if the cars behind me in the other lane are going slower than me then go ahead and move anyway
-  // don't cut off cars moving too fast
-  // why do I randomly exceed limits?
-  
-  
-  set<Car> otherCarsInLane = map->otherCars[current_lane];
-  for (Car other_car : otherCarsInLane){
-      if (other_car.current_lane == current_lane){
-        if (other_car.s > s && other_car.s < s + 30){
-          if (map->laneIsOpen(current_lane-1, s, speed)){
-            generateTrajectory(current_lane-1, other_car.speed);
-            current_lane = current_lane-1;
-          }
-          else if (map->laneIsOpen(current_lane+1, s, speed)){
-            generateTrajectory(current_lane+1, other_car.speed);
-            current_lane = current_lane+1;
-          }
-          else {
-            generateTrajectory(current_lane, other_car.speed);
-          }
-          return;
-        }
-    }
+  double lane_to_left_speed = 0;
+  if (map->laneIsOpen(current_lane-1, s, speed)){
+    lane_to_left_speed = map->laneCurrentSpeed(current_lane-1, s, 45);
   }
   
-  // no one in front of us, drive as fast as legally allowed
-  generateTrajectory(current_lane, map->speed_limit - (0.5/2.237));
+  double lane_to_right_speed = 0;
+  if (map->laneIsOpen(current_lane+1, s, speed)){
+    lane_to_right_speed = map->laneCurrentSpeed(current_lane+1, s, 45);
+  }
   
+  int target_lane;
+  double target_speed;
+  
+  if (lane_to_left_speed > lane_to_right_speed){
+    target_lane = current_lane-1;
+    target_speed = lane_to_left_speed;
+  }
+  else {
+    target_lane = current_lane+1;
+    target_speed = lane_to_right_speed;
+  }
+  
+  double current_lane_speed = map->laneCurrentSpeed(current_lane, s, 30);
+  
+  if (current_lane_speed >= target_speed){
+    target_lane = current_lane;
+    target_speed = current_lane_speed;
+  }
+  
+  if (current_lane_speed == map->speed_limit
+      && (lane_to_right_speed + lane_to_left_speed) == map->speed_limit
+      && abs(lane_to_right_speed - lane_to_left_speed) == map->speed_limit){
+    // prefer the middle lane if both lanes are empty because it has more options
+    target_lane = 1;
+  }
+  
+  current_lane = target_lane;
+  generateTrajectory(target_lane, target_speed);
 }
 
 void Car::generateTrajectory(int lane, double target_speed){

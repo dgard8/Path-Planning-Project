@@ -35,6 +35,7 @@ public:
   
   void processSensorFusion(vector<vector<double>> sensorFusion);
   bool laneIsOpen(int lane, double s, double speed);
+  double laneCurrentSpeed(int lane, double s, double distance_ahead);
 };
 
 #endif /* Map_h */

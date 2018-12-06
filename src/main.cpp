@@ -48,16 +48,10 @@ int main() {
 
       if (s != "") {
         auto j = json::parse(s);
-        
         string event = j[0].get<string>();
         
         if (event == "telemetry") {
-          bool verbose = true;
-          if (verbose) {cout << j[1].dump() << endl;}
-          
-          // Main car's localization Data
           car.readInputData(j[1]);
-
           car.drive();
         
           json msgJson;
@@ -65,8 +59,6 @@ int main() {
           msgJson["next_y"] = car.next_y_vals;
 
           auto msg = "42[\"control\","+ msgJson.dump()+"]";
-          
-          if (verbose) {cout << msg << endl;}
 
           //this_thread::sleep_for(chrono::milliseconds(1000));
           ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);

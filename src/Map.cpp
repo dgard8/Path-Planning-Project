@@ -11,7 +11,7 @@ Map::~Map() {}
 Map::Map(string mapFile){
   max_s = 6945.554;
   lane_width = 4;
-  speed_limit = 50 / 2.237; //mph to m/s
+  speed_limit = (50 - 0.5) / 2.237; //mph to m/s
   
   ifstream in_map(mapFile.c_str(), ifstream::in);
   if (in_map.fail()){
@@ -65,16 +65,24 @@ bool Map::laneIsOpen(int lane, double s, double speed){
   
   set<Car> otherCarsInLane = otherCars[lane];
   for (Car car : otherCarsInLane){
-    if (car.current_lane == lane){
       if (car.s >= s-5 && car.s < s+30){
         return false;
       }
       if (car.s > s-30 && car.s < s-5 && car.speed > speed){
         return false;
       }
-    }
   }
   return true;
+}
+
+double Map::laneCurrentSpeed(int lane, double s, double distance_ahead){
+  set<Car> otherCarsInLane = otherCars[lane];
+  for (Car car : otherCarsInLane){
+      if (car.s > s && car.s < s+distance_ahead){
+        return car.speed;
+      }
+  }
+  return speed_limit;
 }
 
 // Transform from Frenet s,d coordinates to Cartesian x,y
